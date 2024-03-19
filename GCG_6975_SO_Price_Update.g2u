@@ -1,0 +1,213 @@
+﻿Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+
+Function.Intrinsic.UI.UsePixels ' Allows you to use Pixels instead of Twips throughout
+'Project for SMC 11/21/22 by Sam S.
+'THis project puts a WIp to FG button on the SO lines scrtip 1 button. It also puts an update price button the Script 2 button of the same screen. The update price button will calculate the price to put on the SO based on the cost fromt the WO with some aditional factors.
+
+
+
+'only want to run this when in Open, not (new or delete)
+F.Intrinsic.Control.If(V.Caller.Switches,<>,"O")
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndIf
+F.ODBC.Connection!con.OpenCompanyConnection
+
+F.Intrinsic.Control.SelectCase(V.Caller.Hook)
+	F.Intrinsic.Control.Case(12010)
+		'populate hook
+		'Script hook 1 Name
+		V.Passed.000162.Set("WIP2FG")
+		'Script hook 2 Name
+		V.Passed.000141.Set("Update Price")
+	
+	F.Intrinsic.Control.Case(12410)
+		'Script button 1 hook, WIP2FG
+		F.Intrinsic.Control.CallSub(WIP2FG)
+	
+	
+	F.Intrinsic.Control.Case(12420)
+		
+		F.Intrinsic.UI.Msgbox("This feature does not work yet")
+		F.Intrinsic.Control.End
+		'Script button 2 hook, update price
+		F.Intrinsic.Control.CallSub(UpdatePrice)
+	
+	
+	
+F.Intrinsic.Control.EndSelect
+F.Intrinsic.Control.CallSub(unload)
+
+
+F.Intrinsic.Control.Catch
+	'Put error catch here
+	F.Intrinsic.Control.CallSub(unload)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.Unload.Start
+F.Intrinsic.Control.Try
+
+	F.ODBC.Connection!con.Close
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.Unload.End
+
+
+Program.Sub.WIP2FG.Start
+F.Intrinsic.Control.Try
+V.Local.sRet.Declare
+V.Local.sSQL.Declare
+V.Local.sSONum.Declare
+V.Local.sSOLine.Declare
+V.Local.sJob.Declare
+V.Local.sWOSuff.Declare
+V.Local.sParams.Declare
+
+'Variable.Passed.000051 Line num, needs LPad
+'Variable.Passed.000060 SO num, needs LPad
+'Variable.Passed.000052 Part Num
+
+F.Intrinsic.Control.If(Variable.Passed.000052,=,"","OR",Variable.Passed.000007,=,0)
+	F.Intrinsic.UI.Msgbox("No Part or Qty entered")
+	F.Intrinsic.Control.CallSub(unload)
+F.Intrinsic.Control.EndIf
+
+
+V.Local.sSONum.Set(Variable.Passed.000060)
+V.Local.sSOLine.Set(Variable.Passed.000051)
+
+F.Intrinsic.String.LPad(V.Local.sSONum,"0",7,V.Local.sSONum)
+F.Intrinsic.String.LPad(V.Local.sSOLine,"0",3,V.Local.sSOLine)
+F.Intrinsic.String.RPad(V.Local.sSOLine,"0",4,V.Local.sSOLine)
+
+
+F.Intrinsic.String.Build("Select RTRIM(Job) as Job, RTRIM(Suffix) as Suffix From ORDER_TO_WO where Order_NO = '{0}' and Order_line = '{1}'",V.Local.sSONum,V.Local.sSOLine,V.Local.sSQL)
+F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSQL,V.Local.sRet)
+
+F.Intrinsic.Control.If(V.Ambient.ExecuteAndReturnEOF)
+	F.Intrinsic.UI.Msgbox("No Work Ordrer found for this SO-Line combination")
+	F.Intrinsic.Control.CallSub(unload)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.String.Split(V.Local.sRet,"*!*",V.Local.sRet)
+V.Local.sRet.RedimPreserve(0,1)
+V.Local.sJob.Set(V.Local.sRet(0))
+V.Local.sWOSuff.Set(V.Local.sRet(1))
+
+F.Intrinsic.Control.If(V.Local.sJob,=,"")
+	F.Intrinsic.UI.Msgbox("No Work Ordrer found for this SO-Line combination")
+	F.Intrinsic.Control.CallSub(unload)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.String.Build("{0}!*!{1}!*!{2}!*!OS!*!!*!!*!!*!!*!!*!!*!{3}!*!{4}!*!16!*!03!*!02!*!!*!!*!!*!!*!!*!!*!!*!!*!!*!",V.Caller.CompanyCode,V.Caller.Terminal,V.Caller.Caller,V.Local.sJob,V.Local.sWOSuff,V.Local.sParams)
+
+F.Intrinsic.Control.If(V.Local.sWOSuff,=,"000")
+	'Parent Bom WO... call WIP2FG BOM ''''Not sure which one this is yet JB00551GI does not seem to work
+	F.Global.General.CallWrapperSync(50,"JBS051A")
+	
+F.Intrinsic.Control.Else
+	'Call normal Wip2FG screen
+	F.Global.General.CallWrapperSync(2003,V.Local.sParams)
+F.Intrinsic.Control.EndIf
+
+
+F.Intrinsic.Control.Catch
+	'Put error catch here
+	F.Intrinsic.Control.CallSub(unload)
+
+F.Intrinsic.Control.EndTry
+Program.Sub.WIP2FG.End
+
+Program.Sub.UpdatePrice.Start
+F.Intrinsic.Control.Try
+V.Local.sRet.Declare
+V.Local.sSQL.Declare
+V.Local.sSONum.Declare
+V.Local.sSOLine.Declare
+V.Local.sJob.Declare
+V.Local.sWOSuff.Declare
+V.Local.sParams.Declare
+V.Local.fMarkup.Declare
+V.Local.fTotalPrice.Declare
+V.Local.fOrderQty.Declare
+V.Local.fPricePerQTY.Declare
+'Variable.Passed.000007 QTY ordered
+'Variable.Passed.000009 Curr Price
+'Variable.Passed.000051 Line num, needs LPad
+'Variable.Passed.000060 SO num, needs LPad
+
+V.Local.fOrderQty.Set(Variable.Passed.000007)
+F.Intrinsic.Control.If(Variable.Passed.000052,=,"","OR",Variable.Passed.000007,=,0)
+	F.Intrinsic.UI.Msgbox("No Part or Qty entered")
+	F.Intrinsic.Control.CallSub(unload)
+F.Intrinsic.Control.EndIf
+
+
+V.Local.sSONum.Set(Variable.Passed.000060)
+V.Local.sSOLine.Set(Variable.Passed.000051)
+
+F.Intrinsic.String.LPad(V.Local.sSONum,"0",7,V.Local.sSONum)
+F.Intrinsic.String.LPad(V.Local.sSOLine,"0",3,V.Local.sSOLine)
+F.Intrinsic.String.RPad(V.Local.sSOLine,"0",4,V.Local.sSOLine)
+
+
+F.Intrinsic.String.Build("Select RTRIM(Job) as Job, RTRIM(Suffix) as Suffix From ORDER_TO_WO where Order_NO = '{0}' and Order_line = '{1}'",V.Local.sSONum,V.Local.sSOLine,V.Local.sSQL)
+F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSQL,V.Local.sRet)
+
+F.Intrinsic.Control.If(V.Ambient.ExecuteAndReturnEOF)
+	F.Intrinsic.UI.Msgbox("No Work Ordrer found for this SO-Line combination")
+	F.Intrinsic.Control.CallSub(unload)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.String.Split(V.Local.sRet,"*!*",V.Local.sRet)
+V.Local.sRet.RedimPreserve(0,1)
+V.Local.sJob.Set(V.Local.sRet(0))
+V.Local.sWOSuff.Set(V.Local.sRet(1))
+
+F.Intrinsic.Control.If(V.Local.sJob,=,"")
+	F.Intrinsic.UI.Msgbox("No Work Ordrer found for this SO-Line combination")
+	F.Intrinsic.Control.CallSub(unload)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.UI.Inputbox("Please enter Markup","Markup as 1.xx","1.34",V.Local.sRet)
+
+F.Intrinsic.Control.If(V.Local.sRet,=,"***CANCEL***")
+	F.Intrinsic.Control.CallSub(unload)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Try
+	V.Local.fMarkup.Set(V.Local.sRet.Float)
+F.Intrinsic.Control.Catch
+	F.Intrinsic.UI.Msgbox("Incorrect Input")
+	F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndTry
+
+'Get WO detail information
+
+
+
+'Total Price / SO line QTY = Price per SO line EA
+F.Intrinsic.Math.Div(V.Local.fTotalPrice,V.Local.fOrderQty,V.Local.fPricePerQTY)
+'Update price per SO line QTY. 
+V.Passed.000009.Set(V.Local.fPricePerQTY)
+
+F.Intrinsic.UI.Msgbox("Price has been updated, please save")
+
+F.Intrinsic.Control.Catch
+	'Put error catch here
+	F.Intrinsic.Control.CallSub(unload)
+
+F.Intrinsic.Control.EndTry
+Program.Sub.UpdatePrice.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$sstanka$}$20221122080401160$}$mP+zz5Tw3sT2/nyap+FbWm4triMPqjXDnYlOjMaK7B0hF/RtnlRL9t+MEmNlwJpXVOoZFOdk364=
+Program.Sub.Comments.End
